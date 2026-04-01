@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Maintenance Calendar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6/index.global.min.js"></script>
+  <script defer src="https://unpkg.com/alpinejs@3/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    .fc .fc-toolbar-title { font-size: 1.25rem; font-weight: 700; }
+    .fc .fc-button-primary {
+      background-color: #3b82f6;
+      border-color: #3b82f6;
+    }
+    .fc .fc-button-primary:hover {
+      background-color: #2563eb;
+      border-color: #2563eb;
+    }
+    .fc .fc-button-primary:not(:disabled):active,
+    .fc .fc-button-primary:not(:disabled).fc-button-active {
+      background-color: #1d4ed8;
+      border-color: #1d4ed8;
+    }
+    .fc .fc-daygrid-event {
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 1px 4px;
+    }
+    .fc .fc-day-today { background-color: #eff6ff !important; }
+    .fc-event-title { font-weight: 500; }
+
+    .toast-enter { animation: slideIn 0.3s ease-out; }
+    @keyframes slideIn {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="mainApp()" x-init="init()">
+
+  <!-- Toast Notifications -->
+  <div class="fixed top-4 right-4 z-50 flex flex-col gap-2" x-cloak>
+    <template x-for="toast in toasts" :key="toast.id">
+      <div
+        class="toast-enter px-4 py-3 rounded-lg shadow-lg text-white text-sm font-medium max-w-sm"
+        :class="{
+          'bg-green-500': toast.type === 'success',
+          'bg-red-500': toast.type === 'error',
+          'bg-blue-500': toast.type === 'info'
+        }"
+        x-text="toast.message"
+      ></div>
+    </template>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-white border-b border-gray-200 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-16">
+        <div class="flex items-center gap-3">
+          <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          <h1 class="text-xl font-bold text-gray-900">Maintenance Calendar</h1>
+        </div>
+        <!-- Nav Tabs -->
+        <nav class="flex gap-1">
+          <button
+            @click="activeTab = 'calendar'"
+            :class="activeTab === 'calendar'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 border-transparent'"
+            class="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+          >
+            Calendar
+          </button>
+          <button
+            @click="activeTab = 'tasks'"
+            :class="activeTab === 'tasks'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 border-transparent'"
+            class="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+          >
+            Tasks
+          </button>
+          <button
+            @click="activeTab = 'upcoming'"
+            :class="activeTab === 'upcoming'
+              ? 'bg-blue-50 text-blue-700 border-blue-200'
+              : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50 border-transparent'"
+            class="px-4 py-2 rounded-lg text-sm font-medium border transition-colors"
+          >
+            Upcoming
+            <span
+              x-show="upcomingEvents.length > 0"
+              class="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs font-bold bg-blue-600 text-white rounded-full"
+              x-text="upcomingEvents.length"
+            ></span>
+          </button>
+        </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+    <!-- Calendar Tab -->
+    <div x-show="activeTab === 'calendar'" x-cloak>
+      <!-- Filters Bar -->
+      <div class="flex items-center gap-4 mb-4 flex-wrap">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-gray-700">Filter by place:</label>
+          <select
+            x-model="filterPlace"
+            @change="calendarRefresh()"
+            class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All places</option>
+            <template x-for="place in uniquePlaces" :key="place">
+              <option :value="place" x-text="place"></option>
+            </template>
+          </select>
+        </div>
+        <div class="flex items-center gap-3 text-xs text-gray-500">
+          <span class="flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-blue-500 inline-block"></span> Pending
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-green-500 inline-block"></span> Done
+          </span>
+          <span class="flex items-center gap-1">
+            <span class="w-3 h-3 rounded bg-gray-400 inline-block"></span> Skipped
+          </span>
+        </div>
+      </div>
+      <!-- FullCalendar Container -->
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <div id="calendar"></div>
+      </div>
+    </div>
+
+    <!-- Tasks Tab -->
+    <div x-show="activeTab === 'tasks'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-900">Maintenance Tasks</h2>
+        <button
+          @click="openAddTaskModal()"
+          class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+          </svg>
+          Add Task
+        </button>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div x-show="tasks.length === 0" class="text-center py-16 text-gray-400">
+          <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          <p class="text-sm">No tasks yet. Add your first maintenance task!</p>
+        </div>
+        <table x-show="tasks.length > 0" class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th class="text-left px-4 py-3 font-semibold text-gray-700">Name</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-700">Category</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-700">Place</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-700">Periodicity</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-700">Time</th>
+              <th class="text-left px-4 py-3 font-semibold text-gray-700">Actions</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <template x-for="task in tasks" :key="task.id">
+              <tr class="hover:bg-gray-50 transition-colors">
+                <td class="px-4 py-3">
+                  <div class="font-medium text-gray-900" x-text="task.name"></div>
+                  <div x-show="task.description" class="text-xs text-gray-500 mt-0.5" x-text="task.description"></div>
+                </td>
+                <td class="px-4 py-3">
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+                    x-text="task.category || 'General'"></span>
+                </td>
+                <td class="px-4 py-3 text-gray-600" x-text="task.place || '—'"></td>
+                <td class="px-4 py-3 text-gray-600" x-text="periodicityLabel(task.periodicity_days)"></td>
+                <td class="px-4 py-3 text-gray-600" x-text="task.preferred_time || '09:00'"></td>
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-2">
+                    <button
+                      @click="openEditTaskModal(task)"
+                      class="text-blue-600 hover:text-blue-800 text-xs font-medium hover:underline"
+                    >Edit</button>
+                    <span class="text-gray-300">|</span>
+                    <button
+                      @click="deleteTask(task.id)"
+                      class="text-red-500 hover:text-red-700 text-xs font-medium hover:underline"
+                    >Delete</button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Upcoming Tab -->
+    <div x-show="activeTab === 'upcoming'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold text-gray-900">Upcoming Maintenance</h2>
+        <button
+          @click="fetchUpcoming()"
+          class="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          Refresh
+        </button>
+      </div>
+
+      <div x-show="upcomingEvents.length === 0" class="bg-white rounded-xl shadow-sm border border-gray-200 text-center py-16 text-gray-400">
+        <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <p class="text-sm">No upcoming tasks. You're all caught up!</p>
+      </div>
+
+      <div class="grid gap-3">
+        <template x-for="event in upcomingEvents" :key="event.id">
+          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 flex items-center justify-between hover:border-blue-200 transition-colors">
+            <div class="flex items-start gap-4">
+              <div class="flex-shrink-0 w-12 h-12 bg-blue-50 rounded-lg flex flex-col items-center justify-center text-blue-700">
+                <span class="text-xs font-semibold uppercase" x-text="formatMonth(event.scheduled_date)"></span>
+                <span class="text-lg font-bold leading-tight" x-text="formatDay(event.scheduled_date)"></span>
+              </div>
+              <div>
+                <div class="font-semibold text-gray-900" x-text="event.task_name"></div>
+                <div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                  <span x-show="event.place" class="flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span x-text="event.place"></span>
+                  </span>
+                  <span x-show="event.scheduled_time" class="flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span x-text="event.scheduled_time"></span>
+                  </span>
+                  <span x-show="event.category" class="flex items-center gap-1">
+                    <span class="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs" x-text="event.category"></span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button
+                @click="markEventDone(event.id)"
+                class="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                </svg>
+                Mark Done
+              </button>
+              <button
+                @click="openEventModal(event)"
+                class="px-3 py-1.5 border border-gray-300 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Details
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Add/Edit Task Modal -->
+  <div
+    x-show="showTaskModal"
+    x-cloak
+    class="fixed inset-0 z-40 flex items-center justify-center p-4"
+    @keydown.escape.window="showTaskModal = false"
+  >
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showTaskModal = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <h3 class="text-lg font-semibold text-gray-900" x-text="editingTask ? 'Edit Task' : 'Add New Task'"></h3>
+        <button @click="showTaskModal = false" class="text-gray-400 hover:text-gray-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <form @submit.prevent="saveTask()" class="p-6 space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Task Name <span class="text-red-500">*</span></label>
+          <input
+            type="text"
+            x-model="taskForm.name"
+            placeholder="e.g., Oil Change"
+            required
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <input
+              type="text"
+              x-model="taskForm.category"
+              placeholder="e.g., Vehicle, HVAC"
+              list="category-suggestions"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <datalist id="category-suggestions">
+              <option value="General"></option>
+              <option value="Vehicle"></option>
+              <option value="HVAC"></option>
+              <option value="Plumbing"></option>
+              <option value="Electrical"></option>
+              <option value="Garden"></option>
+              <option value="Appliances"></option>
+              <option value="Health"></option>
+            </datalist>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Place / Location</label>
+            <input
+              type="text"
+              x-model="taskForm.place"
+              placeholder="e.g., Home, Garage"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Preferred Time</label>
+            <input
+              type="time"
+              x-model="taskForm.preferred_time"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Periodicity (days) <span class="text-red-500">*</span></label>
+            <input
+              type="number"
+              x-model.number="taskForm.periodicity_days"
+              min="1"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+
+        <!-- Periodicity quick-select -->
+        <div class="flex flex-wrap gap-2">
+          <span class="text-xs text-gray-500 self-center">Quick:</span>
+          <template x-for="preset in periodicityPresets" :key="preset.days">
+            <button
+              type="button"
+              @click="taskForm.periodicity_days = preset.days"
+              :class="taskForm.periodicity_days === preset.days
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600'"
+              class="px-2.5 py-1 text-xs font-medium rounded-lg border transition-colors"
+              x-text="preset.label"
+            ></button>
+          </template>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+          <textarea
+            x-model="taskForm.description"
+            rows="3"
+            placeholder="Optional notes about this maintenance task..."
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+          ></textarea>
+        </div>
+
+        <div class="flex gap-3 pt-2">
+          <button
+            type="button"
+            @click="showTaskModal = false"
+            class="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+          >Cancel</button>
+          <button
+            type="submit"
+            :disabled="savingTask"
+            class="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <span x-show="!savingTask" x-text="editingTask ? 'Save Changes' : 'Add Task'"></span>
+            <span x-show="savingTask">Saving...</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Event Detail Modal -->
+  <div
+    x-show="showEventModal"
+    x-cloak
+    class="fixed inset-0 z-40 flex items-center justify-center p-4"
+    @keydown.escape.window="showEventModal = false"
+  >
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" @click="showEventModal = false"></div>
+    <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-md">
+      <div class="flex items-center justify-between p-6 border-b border-gray-100">
+        <h3 class="text-lg font-semibold text-gray-900">Event Details</h3>
+        <button @click="showEventModal = false" class="text-gray-400 hover:text-gray-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div x-show="selectedEvent" class="p-6">
+        <!-- Status Badge -->
+        <div class="flex items-center justify-between mb-4">
+          <h4 class="text-xl font-bold text-gray-900" x-text="selectedEvent?.task_name"></h4>
+          <span
+            class="px-2.5 py-1 text-xs font-semibold rounded-full"
+            :class="{
+              'bg-blue-100 text-blue-800': selectedEvent?.status === 'pending',
+              'bg-green-100 text-green-800': selectedEvent?.status === 'done',
+              'bg-gray-100 text-gray-600': selectedEvent?.status === 'skipped'
+            }"
+            x-text="selectedEvent?.status?.charAt(0).toUpperCase() + selectedEvent?.status?.slice(1)"
+          ></span>
+        </div>
+
+        <!-- Details Grid -->
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-xs text-gray-500 mb-0.5">Date</div>
+            <div class="text-sm font-semibold text-gray-900" x-text="formatDateFull(selectedEvent?.scheduled_date)"></div>
+          </div>
+          <div class="bg-gray-50 rounded-lg p-3">
+            <div class="text-xs text-gray-500 mb-0.5">Time</div>
+            <div class="text-sm font-semibold text-gray-900" x-text="selectedEvent?.scheduled_time || 'Not set'"></div>
+          </div>
+          <div x-show="selectedEvent?.place" class="bg-gray-50 rounded-lg p-3">
+            <div class="text-xs text-gray-500 mb-0.5">Place</div>
+            <div class="text-sm font-semibold text-gray-900" x-text="selectedEvent?.place"></div>
+          </div>
+          <div x-show="selectedEvent?.category" class="bg-gray-50 rounded-lg p-3">
+            <div class="text-xs text-gray-500 mb-0.5">Category</div>
+            <div class="text-sm font-semibold text-gray-900" x-text="selectedEvent?.category"></div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea
+            x-model="eventNotes"
+            rows="3"
+            placeholder="Add notes about this event..."
+            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          ></textarea>
+        </div>
+
+        <!-- Actions -->
+        <div x-show="selectedEvent?.status === 'pending'" class="flex gap-3">
+          <button
+            @click="updateEventStatus('done')"
+            :disabled="updatingEvent"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+            </svg>
+            Mark Done
+          </button>
+          <button
+            @click="updateEventStatus('skipped')"
+            :disabled="updatingEvent"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-gray-500 text-white text-sm font-medium rounded-lg hover:bg-gray-600 disabled:opacity-50 transition-colors"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5l7 7-7 7M5 5l7 7-7 7"/>
+            </svg>
+            Skip
+          </button>
+        </div>
+        <div x-show="selectedEvent?.status !== 'pending'">
+          <button
+            @click="saveEventNotes()"
+            :disabled="updatingEvent"
+            class="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >Save Notes</button>
+        </div>
+        <div x-show="selectedEvent?.completed_at" class="mt-3 text-xs text-gray-400 text-center">
+          Completed: <span x-text="formatDateTimeFull(selectedEvent?.completed_at)"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:3000/api';
+
+    function mainApp() {
+      return {
+        activeTab: 'calendar',
+        tasks: [],
+        upcomingEvents: [],
+        filterPlace: '',
+        uniquePlaces: [],
+
+        // Toast
+        toasts: [],
+        toastCounter: 0,
+
+        // Task modal
+        showTaskModal: false,
+        editingTask: null,
+        savingTask: false,
+        taskForm: {
+          name: '',
+          category: 'General',
+          place: '',
+          preferred_time: '09:00',
+          periodicity_days: 365,
+          description: ''
+        },
+        periodicityPresets: [
+          { label: 'Weekly', days: 7 },
+          { label: 'Monthly', days: 30 },
+          { label: 'Quarterly', days: 90 },
+          { label: 'Semi-annual', days: 180 },
+          { label: 'Yearly', days: 365 }
+        ],
+
+        // Event modal
+        showEventModal: false,
+        selectedEvent: null,
+        eventNotes: '',
+        updatingEvent: false,
+
+        // FullCalendar instance
+        calendar: null,
+
+        async init() {
+          await this.fetchTasks();
+          await this.fetchUpcoming();
+          this.$nextTick(() => {
+            this.initCalendar();
+          });
+        },
+
+        async fetchTasks() {
+          try {
+            const res = await fetch(`${API_BASE}/tasks`);
+            this.tasks = await res.json();
+            this.updateUniquePlaces();
+          } catch (err) {
+            this.showToast('Failed to load tasks', 'error');
+          }
+        },
+
+        async fetchUpcoming() {
+          try {
+            const res = await fetch(`${API_BASE}/events/upcoming`);
+            this.upcomingEvents = await res.json();
+          } catch (err) {
+            this.showToast('Failed to load upcoming events', 'error');
+          }
+        },
+
+        updateUniquePlaces() {
+          const places = [...new Set(
+            this.tasks.map(t => t.place).filter(p => p && p.trim())
+          )].sort();
+          this.uniquePlaces = places;
+        },
+
+        initCalendar() {
+          const calEl = document.getElementById('calendar');
+          if (!calEl) return;
+
+          const self = this;
+          this.calendar = new FullCalendar.Calendar(calEl, {
+            initialView: 'dayGridMonth',
+            headerToolbar: {
+              left: 'prev,next today',
+              center: 'title',
+              right: 'dayGridMonth,dayGridWeek'
+            },
+            height: 'auto',
+            eventDisplay: 'block',
+            events: async function(info, successCb, failureCb) {
+              try {
+                const start = info.startStr.split('T')[0];
+                const end = info.endStr.split('T')[0];
+                let url = `${API_BASE}/events?start=${start}&end=${end}`;
+                if (self.filterPlace) {
+                  url += `&place=${encodeURIComponent(self.filterPlace)}`;
+                }
+                const res = await fetch(url);
+                const events = await res.json();
+                const mapped = events.map(e => ({
+                  id: String(e.id),
+                  title: e.task_name,
+                  start: e.scheduled_date + (e.scheduled_time ? 'T' + e.scheduled_time : ''),
+                  backgroundColor: e.status === 'done' ? '#22c55e'
+                    : e.status === 'skipped' ? '#9ca3af'
+                    : '#3b82f6',
+                  borderColor: e.status === 'done' ? '#16a34a'
+                    : e.status === 'skipped' ? '#6b7280'
+                    : '#2563eb',
+                  textColor: '#ffffff',
+                  extendedProps: { ...e }
+                }));
+                successCb(mapped);
+              } catch (err) {
+                failureCb(err);
+              }
+            },
+            eventClick: function(info) {
+              self.openEventModal(info.event.extendedProps);
+            },
+            eventDidMount: function(info) {
+              // Add place as tooltip
+              if (info.event.extendedProps.place) {
+                info.el.title = `${info.event.title} @ ${info.event.extendedProps.place}`;
+              }
+            }
+          });
+
+          this.calendar.render();
+        },
+
+        calendarRefresh() {
+          if (this.calendar) {
+            this.calendar.refetchEvents();
+          }
+        },
+
+        // Task Modal
+        openAddTaskModal() {
+          this.editingTask = null;
+          this.taskForm = {
+            name: '',
+            category: 'General',
+            place: '',
+            preferred_time: '09:00',
+            periodicity_days: 365,
+            description: ''
+          };
+          this.showTaskModal = true;
+        },
+
+        openEditTaskModal(task) {
+          this.editingTask = task;
+          this.taskForm = {
+            name: task.name,
+            category: task.category || 'General',
+            place: task.place || '',
+            preferred_time: task.preferred_time || '09:00',
+            periodicity_days: task.periodicity_days,
+            description: task.description || ''
+          };
+          this.showTaskModal = true;
+        },
+
+        async saveTask() {
+          if (!this.taskForm.name.trim()) return;
+          this.savingTask = true;
+          try {
+            let res;
+            if (this.editingTask) {
+              res = await fetch(`${API_BASE}/tasks/${this.editingTask.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.taskForm)
+              });
+              if (!res.ok) throw new Error('Failed to update task');
+              this.showToast('Task updated successfully', 'success');
+            } else {
+              res = await fetch(`${API_BASE}/tasks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.taskForm)
+              });
+              if (!res.ok) throw new Error('Failed to create task');
+              const data = await res.json();
+              this.showToast(`Task created! ${data.events_created} events scheduled.`, 'success');
+            }
+
+            this.showTaskModal = false;
+            await this.fetchTasks();
+            await this.fetchUpcoming();
+            this.calendarRefresh();
+          } catch (err) {
+            this.showToast(err.message || 'Error saving task', 'error');
+          } finally {
+            this.savingTask = false;
+          }
+        },
+
+        async deleteTask(id) {
+          if (!confirm('Delete this task and all its scheduled events?')) return;
+          try {
+            const res = await fetch(`${API_BASE}/tasks/${id}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error('Failed to delete task');
+            this.showToast('Task deleted', 'success');
+            await this.fetchTasks();
+            await this.fetchUpcoming();
+            this.calendarRefresh();
+          } catch (err) {
+            this.showToast(err.message || 'Error deleting task', 'error');
+          }
+        },
+
+        // Event Modal
+        openEventModal(eventData) {
+          this.selectedEvent = eventData;
+          this.eventNotes = eventData.notes || '';
+          this.showEventModal = true;
+        },
+
+        async updateEventStatus(status) {
+          if (!this.selectedEvent) return;
+          this.updatingEvent = true;
+          try {
+            const res = await fetch(`${API_BASE}/events/${this.selectedEvent.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status, notes: this.eventNotes })
+            });
+            if (!res.ok) throw new Error('Failed to update event');
+            const updated = await res.json();
+            this.selectedEvent = { ...this.selectedEvent, ...updated };
+            this.showToast(
+              status === 'done' ? 'Marked as done!' : 'Event skipped',
+              status === 'done' ? 'success' : 'info'
+            );
+            this.showEventModal = false;
+            await this.fetchUpcoming();
+            this.calendarRefresh();
+          } catch (err) {
+            this.showToast(err.message || 'Error updating event', 'error');
+          } finally {
+            this.updatingEvent = false;
+          }
+        },
+
+        async saveEventNotes() {
+          if (!this.selectedEvent) return;
+          this.updatingEvent = true;
+          try {
+            const res = await fetch(`${API_BASE}/events/${this.selectedEvent.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ notes: this.eventNotes })
+            });
+            if (!res.ok) throw new Error('Failed to save notes');
+            this.showToast('Notes saved', 'success');
+            this.showEventModal = false;
+            this.calendarRefresh();
+          } catch (err) {
+            this.showToast(err.message || 'Error saving notes', 'error');
+          } finally {
+            this.updatingEvent = false;
+          }
+        },
+
+        async markEventDone(id) {
+          try {
+            const res = await fetch(`${API_BASE}/events/${id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'done' })
+            });
+            if (!res.ok) throw new Error('Failed to mark done');
+            this.showToast('Marked as done!', 'success');
+            await this.fetchUpcoming();
+            this.calendarRefresh();
+          } catch (err) {
+            this.showToast(err.message || 'Error updating event', 'error');
+          }
+        },
+
+        // Helpers
+        periodicityLabel(days) {
+          const map = { 7: 'Weekly', 30: 'Monthly', 90: 'Quarterly', 180: 'Semi-annual', 365: 'Yearly' };
+          return map[days] || `Every ${days} days`;
+        },
+
+        formatMonth(dateStr) {
+          if (!dateStr) return '';
+          const d = new Date(dateStr + 'T00:00:00');
+          return d.toLocaleString('default', { month: 'short' });
+        },
+
+        formatDay(dateStr) {
+          if (!dateStr) return '';
+          const d = new Date(dateStr + 'T00:00:00');
+          return d.getDate();
+        },
+
+        formatDateFull(dateStr) {
+          if (!dateStr) return '';
+          const d = new Date(dateStr + 'T00:00:00');
+          return d.toLocaleDateString('default', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' });
+        },
+
+        formatDateTimeFull(isoStr) {
+          if (!isoStr) return '';
+          const d = new Date(isoStr);
+          return d.toLocaleString();
+        },
+
+        showToast(message, type = 'info') {
+          const id = ++this.toastCounter;
+          this.toasts.push({ id, message, type });
+          setTimeout(() => {
+            this.toasts = this.toasts.filter(t => t.id !== id);
+          }, 3500);
+        }
+      };
+    }
+  </script>
+</body>
+</html>
